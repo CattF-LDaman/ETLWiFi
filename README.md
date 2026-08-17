@@ -20,7 +20,7 @@ etlwifi bronze ingest neighborhood.csv
 # or: python -m etlwifi bronze ingest neighborhood.csv
 ```
 
-Re-run is idempotent (skips unchanged files). Use `--force` to append a new copy.
+Re-run is idempotent (skips when content hash matches). Updated exports replace prior bronze parts for the same source file. Use `--force` to re-ingest identical content.
 
 ## Privacy utility
 

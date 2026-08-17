@@ -33,7 +33,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     ingest_parser.add_argument(
         "--force",
         action="store_true",
-        help="Ingest even if this exact source file was already landed",
+        help="Re-ingest even when content hash matches a prior landing",
     )
     ingest_parser.set_defaults(handler=_run_ingest)
 
@@ -54,10 +54,13 @@ def _run_ingest(args: argparse.Namespace) -> int:
     if result.skipped:
         prior = result.prior or {}
         print(f"Skipped: {result.reason}")
+        print(f"  content hash: {prior.get('content_hash', 'unknown')}")
         print(f"  prior ingest: {prior.get('ingested_at')} ({prior.get('rows', 0):,} rows)")
         return 0
 
     print(f"Ingested {result.rows:,} rows -> {bronze_root / result.dataset}")
     print(f"  date partitions: {result.partitions}")
+    if result.replaced_parts:
+        print(f"  replaced prior part files: {result.replaced_parts}")
     print(f"  manifest: {result.manifest}")
     return 0
