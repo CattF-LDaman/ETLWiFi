@@ -1,0 +1,4 @@
+-e .
+polars>=1.0
+pyarrow>=14.0
+duckdb>=1.0

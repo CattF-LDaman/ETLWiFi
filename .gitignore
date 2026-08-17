@@ -1,3 +1,21 @@
+
+# Private docs
+PIPELINE.md
+
+.vscode/
+.cursor/
+
+# Local pipeline data (bronze/silver/gold Parquet)
+data/
+
+# Full dataset (hosted separately; see README)
+neighborhood.csv
+
+# Editable install artifacts
+*.egg-info/
+dist/
+build/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
