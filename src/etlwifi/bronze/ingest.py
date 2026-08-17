@@ -15,10 +15,15 @@ from etlwifi.bronze.manifest import (
     manifest_path,
     remove_parts,
 )
+from etlwifi.config.defaults import DATE_PARTITION_PREFIX
+from etlwifi.io.timestamps import (
+    PARTITION_DATE_PATTERN,
+    WINDOW_TIMESTAMP_COLUMN,
+    clean_window_timestamp_expr,
+    partition_date_expr,
+)
 
-DATE_PARTITION_PREFIX = "date="
-TIMESTAMP_COLUMN = "window_timestamp"
-PARTITION_DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
+TIMESTAMP_COLUMN = WINDOW_TIMESTAMP_COLUMN
 
 
 @dataclass(frozen=True)
@@ -35,11 +40,11 @@ class BronzeIngestResult:
 
 
 def _clean_timestamp_expr() -> pl.Expr:
-    return pl.col(TIMESTAMP_COLUMN).str.replace_all("\x00", "").str.strip_chars()
+    return clean_window_timestamp_expr(TIMESTAMP_COLUMN)
 
 
 def _partition_date_expr() -> pl.Expr:
-    return _clean_timestamp_expr().str.slice(0, 10)
+    return partition_date_expr(TIMESTAMP_COLUMN)
 
 
 def _prepare_frame(frame: pl.DataFrame) -> pl.DataFrame:

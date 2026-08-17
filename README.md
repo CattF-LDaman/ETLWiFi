@@ -13,14 +13,20 @@ cp .env.example .env              # optional: MAC_HASH_SALT for hashing
 
 ## Pipeline CLI
 
-Bronze ingest (CSV → date-partitioned Parquet under `data/bronze/`):
+Run the full pipeline (bronze ingest → silver transform):
+
+```bash
+etlwifi run neighborhood.csv
+```
+
+Or run each stage separately:
 
 ```bash
 etlwifi bronze ingest neighborhood.csv
-# or: python -m etlwifi bronze ingest neighborhood.csv
+etlwifi silver transform neighborhood
 ```
 
-Re-run is idempotent (skips when content hash matches). Updated exports replace prior bronze parts for the same source file. Use `--force` to re-ingest identical content.
+Re-run is idempotent (skips when content hash matches). Updated exports replace prior parts for the same source file. Use `--force` to re-process identical content.
 
 ## Privacy utility
 
@@ -37,6 +43,7 @@ src/etlwifi/
 ├── bronze/     # raw landing (Parquet)
 ├── silver/     # cleaned dim/fact tables
 ├── gold/       # aggregates & ML features
+├── pipeline/   # end-to-end orchestration
 ├── config/     # default data paths
 └── cli/        # etlwifi command
 ```

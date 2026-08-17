@@ -4,7 +4,7 @@ import argparse
 import sys
 
 from etlwifi import __version__
-from etlwifi.cli import bronze
+from etlwifi.cli import bronze, run, silver
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -15,7 +15,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
+    run.register(subparsers)
     bronze.register(subparsers)
+    silver.register(subparsers)
     return parser
 
 
