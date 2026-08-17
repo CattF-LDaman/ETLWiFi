@@ -64,7 +64,7 @@ def transform_dataset(
     cleaned, clean_summary = clean_bronze(bronze_frame)
     bridge, channel_counts = build_channel_tables(cleaned)
     fact = build_fact_device_window(cleaned, channel_counts)
-    dim = build_dim_device(fact)
+    dim = build_dim_device(fact, bridge)
     validation = validate_silver(fact, bridge, dim, clean_summary)
 
     write_result = write_silver_tables(fact, bridge, dim, silver_root)

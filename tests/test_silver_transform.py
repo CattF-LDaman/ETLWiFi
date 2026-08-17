@@ -126,6 +126,49 @@ def test_channel_split_and_count() -> None:
     assert fact.filter(pl.col("mac") == "def").item(0, "channel_count") == 1
 
 
+def test_dim_device_lifetime_metrics() -> None:
+    timestamps = [
+        datetime(2026, 5, 27, 13, 46, 9, tzinfo=UTC),
+        datetime(2026, 5, 27, 13, 46, 19, tzinfo=UTC),
+        datetime(2026, 5, 28, 10, 0, 0, tzinfo=UTC),
+    ]
+    fact = pl.DataFrame(
+        {
+            "timestamp": timestamps,
+            "mac": ["abc", "abc", "abc"],
+            "packet_count": [1, 3, 2],
+            "total_bytes": [34, 90, 60],
+            "min_rssi": [-76, -74, -70],
+            "max_rssi": [-74, -72, -68],
+            "avg_rssi": [-75.0, -73.0, -69.0],
+            "mgmt_pkts": [1, 3, 2],
+            "ctrl_pkts": [0, 0, 0],
+            "data_pkts": [0, 0, 0],
+            "channel_count": [2, 1, 1],
+            "_ingested_at": [datetime.now(UTC)] * 3,
+            "_source_file": ["sample.csv"] * 3,
+        }
+    )
+    bridge = pl.DataFrame(
+        {
+            "timestamp": [timestamps[0], timestamps[0], timestamps[1], timestamps[2]],
+            "mac": ["abc", "abc", "abc", "abc"],
+            "channel": [1, 6, 1, 11],
+        }
+    )
+
+    dim = build_dim_device(fact, bridge)
+    row = dim.row(0, named=True)
+
+    assert row["mac"] == "abc"
+    assert row["window_count"] == 3
+    assert row["active_days"] == 2
+    assert row["distinct_channels"] == 3
+    assert row["total_packets"] == 6
+    assert row["total_bytes"] == 184
+    assert row["avg_rssi"] == pytest.approx(-72.3333333)
+
+
 def test_clean_dedupes_on_timestamp_mac() -> None:
     frame = _bronze_lazy(
         [
@@ -194,7 +237,7 @@ def test_validate_rejects_bad_rssi() -> None:
             "channel": [1],
         }
     )
-    dim = build_dim_device(fact)
+    dim = build_dim_device(fact, bridge)
 
     with pytest.raises(ValueError, match="avg_rssi"):
         validate_silver(
