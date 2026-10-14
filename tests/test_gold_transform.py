@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
 import pytest
 
 from etlwifi.config import defaults as d
 from etlwifi.gold.aggregates.network import build_agg_anomaly_hourly
+from etlwifi.gold.aggregates.weekday import build_agg_weekday
 from etlwifi.gold.validate import validate_gold
 from etlwifi.pipeline.run import run_pipeline_sources
 from etlwifi.privacy import hash_mac
@@ -144,6 +145,82 @@ def test_anomaly_detection_flags_spike_against_trailing_baseline() -> None:
     assert flagged["hour_start"].to_list() == [expected_hour]
     assert scored["baseline_samples"].min() >= 2
     assert scored["hour_start"].min() >= datetime(2026, 6, 15, tzinfo=UTC)
+
+
+def _weekday_inputs() -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    first = date(2026, 6, 1)  # a Monday
+    daily_rows, presence_rows = [], []
+    for offset in range(21):
+        day = first + timedelta(days=offset)
+        weekday = day.isoweekday()
+        busy = 40 if weekday == 3 else 10 if weekday == 7 else 20
+        daily_rows.append(
+            {
+                "local_date": day,
+                # Every fourth day is barely captured and must not count.
+                "coverage_ratio": 0.2 if offset % 4 == 3 else 1.0,
+                "stable_devices": busy + offset,
+                "randomized_macs": 5 * busy,
+                "estimated_devices": None,
+                "total_packets": 100 * busy,
+                "new_stable_devices": 1,
+                "peak_concurrent_devices": busy // 2,
+                "mean_concurrent_devices": busy / 4,
+                "median_stable_active_minutes": 30.0,
+            }
+        )
+        presence_rows += [{"local_date": day, "mac": "res", "device_class": "stable"}]
+        presence_rows += [
+            {"local_date": day, "mac": f"p{offset}-{i}", "device_class": "stable"} for i in range(busy)
+        ]
+        presence_rows += [{"local_date": day, "mac": f"r{offset}", "device_class": "randomized"}]
+    presence = pl.DataFrame(presence_rows)
+    profile = (
+        presence.select("mac")
+        .unique()
+        .with_columns(
+            pl.when(pl.col("mac") == "res")
+            .then(pl.lit("resident"))
+            .when(pl.col("mac").str.starts_with("r"))
+            .then(pl.lit("randomized"))
+            .otherwise(pl.lit("passerby"))
+            .alias("device_segment")
+        )
+    )
+    hour_of_week = pl.DataFrame(
+        {
+            "local_weekday": pl.Series([w for w in range(1, 8) for _ in range(24)], dtype=pl.Int8),
+            "local_hour": pl.Series(list(range(24)) * 7, dtype=pl.Int8),
+            "median_stable_devices": [float((h - 17) % 24) for _ in range(7) for h in range(24)],
+        }
+    )
+    return pl.DataFrame(daily_rows), presence, profile, hour_of_week
+
+
+def test_weekday_profile_ranks_days_from_well_covered_days_only() -> None:
+    weekday = build_agg_weekday(*_weekday_inputs())
+    assert weekday.height == 7
+    assert weekday["weekday_name"].to_list()[0] == "Monday"
+    by_day = {row["local_weekday"]: row for row in weekday.iter_rows(named=True)}
+    assert sum(row["days_observed"] for row in by_day.values()) == 16
+    assert by_day[3]["activity_rank"] == 1
+    assert by_day[7]["activity_rank"] == 7
+    assert by_day[3]["activity_index"] > 1 > by_day[7]["activity_index"]
+    assert by_day[6]["is_weekend"] and not by_day[5]["is_weekend"]
+    assert by_day[3]["stable_min"] <= by_day[3]["stable_p25"] <= by_day[3]["stable_median"]
+    assert by_day[3]["stable_median"] <= by_day[3]["stable_p75"] <= by_day[3]["stable_max"]
+    assert by_day[1]["resident_median"] == 1
+    assert by_day[3]["passerby_median"] == 40
+    assert by_day[1]["peak_hour"] == 16
+    assert by_day[1]["quiet_hour"] == 17
+    assert by_day[1]["estimated_days"] == 0
+
+
+def test_weekday_profile_keeps_seven_rows_without_covered_days(gold: dict[str, pl.DataFrame]) -> None:
+    weekday = gold[d.AGG_WEEKDAY]
+    assert weekday["local_weekday"].to_list() == list(range(1, 8))
+    assert weekday["days_observed"].sum() == 0
+    assert weekday["activity_rank"].null_count() == 7
 
 
 def test_anomaly_ignores_low_coverage_hours() -> None:

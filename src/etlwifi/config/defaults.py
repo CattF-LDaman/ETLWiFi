@@ -22,6 +22,7 @@ AGG_NETWORK_WINDOW = "agg_network_window"
 AGG_NETWORK_HOURLY = "agg_network_hourly"
 AGG_NETWORK_DAILY = "agg_network_daily"
 AGG_HOUR_OF_WEEK = "agg_hour_of_week"
+AGG_WEEKDAY = "agg_weekday"
 AGG_BASELINE_HOUR_OF_WEEK = "agg_baseline_hour_of_week"
 AGG_ANOMALY_HOURLY = "agg_anomaly_hourly"
 
@@ -53,6 +54,7 @@ GOLD_TABLES = (
     AGG_NETWORK_HOURLY,
     AGG_NETWORK_DAILY,
     AGG_HOUR_OF_WEEK,
+    AGG_WEEKDAY,
     AGG_BASELINE_HOUR_OF_WEEK,
     AGG_ANOMALY_HOURLY,
     AGG_CHANNEL_HOURLY,

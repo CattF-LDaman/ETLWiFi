@@ -104,6 +104,34 @@ def _hour_of_week(t: dict[str, pl.DataFrame]) -> list[dict]:
     )
 
 
+def _weekday(t: dict[str, pl.DataFrame]) -> list[dict]:
+    frame = t[d.AGG_WEEKDAY]
+    if "local_weekday" not in frame.columns:
+        return []
+    columns = {
+        "local_weekday": "dow",
+        "days_observed": "days",
+        "is_weekend": "weekend",
+        "activity_index": "index",
+        "activity_rank": "rank",
+        "peak_hour": "peak_hour",
+        "peak_hour_stable": "peak_hour_stable",
+        "quiet_hour": "quiet_hour",
+        "estimated_median": "estimated",
+        "packets_median": "packets",
+        "new_stable_median": "new_stable",
+        "peak_concurrent_median": "peak_concurrent",
+        "stable_active_minutes_median": "active_minutes",
+    }
+    for stat in ("min", "p25", "median", "p75", "max"):
+        columns[f"stable_{stat}"] = f"stable_{stat}"
+    for stat in ("p25", "median", "p75"):
+        columns[f"randomized_{stat}"] = f"randomized_{stat}"
+    for segment in ("resident", "infrastructure", "regular", "passerby", "access_point"):
+        columns[f"{segment}_median"] = segment
+    return records(frame, columns, digits=3)
+
+
 def _day_profile(t: dict[str, pl.DataFrame]) -> dict:
     how = t[d.AGG_HOUR_OF_WEEK]
     if how.height == 0:
@@ -414,6 +442,7 @@ def build_dashboard(
         ),
         "hourly_recent": _hourly_recent(tables),
         "hour_of_week": _hour_of_week(tables),
+        "weekday": _weekday(tables),
         "day_profile": _day_profile(tables),
         "baseline": baseline_records(tables[d.AGG_BASELINE_HOUR_OF_WEEK]),
         "segments": _segments(tables),

@@ -49,6 +49,7 @@ def test_dashboard_document_shape(built: tuple[Settings, dict, dict]) -> None:
     assert doc["summary"]["days_observed"] == 9
     assert {s["segment"] for s in doc["segments"]} >= {"resident", "infrastructure", "randomized"}
     assert len(doc["hour_of_week"]) > 0
+    assert [row["dow"] for row in doc["weekday"]] == list(range(1, 8))
     assert doc["access_points"] is None
 
     text = json.dumps(doc)

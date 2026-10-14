@@ -62,11 +62,14 @@ from "capture was down", which is what the coverage metrics are built on.
 - **Silver**: `fact_device_window`, `device_window_channels`, `dim_device` (randomized flag, OUI,
   vendor from the IEEE registry), `fact_capture_window`, `capture_window_dwell`. Timestamps are UTC,
   and `(timestamp, mac)` is deduplicated across overlapping sources.
-- **Gold**: 23 tables in local time (Europe/Brussels). Highlights:
+- **Gold**: 24 tables in local time (Europe/Brussels). Highlights:
   - `agg_network_hourly`: a gap-free hourly calendar with `coverage_ratio`. Uncovered hours are
     null, not zero.
   - `agg_baseline_hour_of_week`: p10/p50/p90 per weekday × hour over the last 28 days, falling back
     to full history for thin slots.
+  - `agg_weekday`: one row per weekday over well-covered days: the spread of daily stable devices
+    (min, quartiles, max), the median segment mix, peak and quiet hours, and an activity index and
+    rank against the weekly average.
   - `agg_anomaly_hourly`: each covered hour against its trailing same-hour-of-week median, using a
     robust z-score on log counts (|z| > 3.5).
   - `dim_device_profile`: behavioural segments (`access_point`, `infrastructure`, `resident`,

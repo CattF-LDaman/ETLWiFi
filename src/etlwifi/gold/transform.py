@@ -32,6 +32,7 @@ from etlwifi.gold.aggregates.presence import (
     build_agg_dwell_distribution,
     build_agg_presence_daily,
 )
+from etlwifi.gold.aggregates.weekday import build_agg_weekday
 from etlwifi.gold.context import build_context
 from etlwifi.gold.features.sessions import build_feat_co_presence_topk, build_feat_session_events
 from etlwifi.gold.features.static import build_feat_device_hour_profile, build_feat_device_static
@@ -88,13 +89,15 @@ def build_gold_tables(
     channel_device = build_agg_channel_device(ctx)
     device_profile = build_dim_device_profile(ctx, channel_device, coverage_daily)
     access_points = build_dim_access_point(ctx)
+    hour_of_week = build_agg_hour_of_week(network_hourly)
 
     tables = {
         d.AGG_CAPTURE_COVERAGE_DAILY: coverage_daily,
         d.AGG_NETWORK_WINDOW: network_window,
         d.AGG_NETWORK_HOURLY: network_hourly,
         d.AGG_NETWORK_DAILY: network_daily,
-        d.AGG_HOUR_OF_WEEK: build_agg_hour_of_week(network_hourly),
+        d.AGG_HOUR_OF_WEEK: hour_of_week,
+        d.AGG_WEEKDAY: build_agg_weekday(network_daily, presence_daily, device_profile, hour_of_week),
         d.AGG_BASELINE_HOUR_OF_WEEK: baseline,
         d.AGG_ANOMALY_HOURLY: build_agg_anomaly_hourly(network_hourly),
         d.AGG_CHANNEL_HOURLY: build_agg_channel_hourly(ctx),

@@ -40,6 +40,7 @@ UNIQUE_KEYS: dict[str, list[str]] = {
     d.AGG_NETWORK_HOURLY: ["hour_start"],
     d.AGG_NETWORK_DAILY: ["local_date"],
     d.AGG_HOUR_OF_WEEK: ["local_weekday", "local_hour"],
+    d.AGG_WEEKDAY: ["local_weekday"],
     d.AGG_BASELINE_HOUR_OF_WEEK: ["local_weekday", "local_hour"],
     d.AGG_ANOMALY_HOURLY: ["hour_start"],
     d.AGG_CHANNEL_HOURLY: ["hour_start", "channel"],
@@ -106,6 +107,12 @@ def validate_gold(
     daily = tables[d.AGG_NETWORK_DAILY]
     if daily.filter(pl.col("unique_devices") > dim_rows).height:
         raise ValueError(f"{d.AGG_NETWORK_DAILY}: unique_devices exceeds dim_device rows")
+
+    weekday = tables[d.AGG_WEEKDAY]
+    if weekday.height != 7:
+        raise ValueError(f"{d.AGG_WEEKDAY}: expected 7 weekday rows, got {weekday.height}")
+    if weekday["days_observed"].sum() > daily.height:
+        raise ValueError(f"{d.AGG_WEEKDAY}: more observed days than {d.AGG_NETWORK_DAILY} rows")
 
     profile = tables[d.DIM_DEVICE_PROFILE]
     if profile.height != dim_rows:
