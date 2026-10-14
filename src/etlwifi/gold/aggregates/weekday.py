@@ -6,6 +6,8 @@ import polars as pl
 
 from etlwifi.config.defaults import MIN_COVERAGE_FOR_BASELINE
 
+# A complete local day; 23 allows for the spring DST transition.
+MIN_CALENDAR_HOURS = 23
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 STABLE_SEGMENTS = ("resident", "infrastructure", "regular", "passerby", "access_point")
 
@@ -37,13 +39,17 @@ def build_agg_weekday(
     device_profile: pl.DataFrame,
     hour_of_week: pl.DataFrame,
 ) -> pl.DataFrame:
-    """One row per ISO weekday, aggregated over well-covered local days only.
+    """One row per ISO weekday, aggregated over complete, well-covered local days only.
 
-    Always returns seven rows so consumers can rely on the shape; weekdays without a covered
-    day have ``days_observed == 0`` and null statistics.
+    The current day is still accumulating, so its coverage looks fine while its counts are
+    partial; requiring a full calendar day keeps it out. Always returns seven rows so consumers
+    can rely on the shape; weekdays without a covered day have ``days_observed == 0``.
     """
     days = (
-        network_daily.filter(pl.col("coverage_ratio") >= MIN_COVERAGE_FOR_BASELINE)
+        network_daily.filter(
+            (pl.col("coverage_ratio") >= MIN_COVERAGE_FOR_BASELINE)
+            & (pl.col("calendar_hours") >= MIN_CALENDAR_HOURS)
+        )
         .join(_segment_days(presence_daily, device_profile), on="local_date", how="left")
         .with_columns(pl.col("local_date").dt.weekday().alias("local_weekday"))
     )

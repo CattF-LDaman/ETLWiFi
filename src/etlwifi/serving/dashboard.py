@@ -21,7 +21,7 @@ def _summary(t: dict[str, pl.DataFrame], now: datetime) -> dict:
     daily = t[d.AGG_NETWORK_DAILY]
     profile = t[d.DIM_DEVICE_PROFILE]
     observed = daily.filter(pl.col("coverage_ratio") > 0)
-    full_days = daily.filter(pl.col("coverage_ratio") >= 0.9)
+    full_days = daily.filter((pl.col("coverage_ratio") >= 0.9) & (pl.col("calendar_hours") >= 23))
     segments = profile["device_segment"].value_counts()
     seg = dict(zip(segments["device_segment"].to_list(), segments["count"].to_list(), strict=True))
     anomalies = t[d.AGG_ANOMALY_HOURLY]
@@ -59,6 +59,7 @@ def _daily(t: dict[str, pl.DataFrame]) -> list[dict]:
         t[d.AGG_NETWORK_DAILY],
         {
             "local_date": "date",
+            "calendar_hours": "hours",
             "coverage_ratio": "coverage",
             "unique_devices": "unique",
             "stable_devices": "stable",

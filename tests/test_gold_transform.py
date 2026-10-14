@@ -159,6 +159,8 @@ def _weekday_inputs() -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.Data
                 "local_date": day,
                 # Every fourth day is barely captured and must not count.
                 "coverage_ratio": 0.2 if offset % 4 == 3 else 1.0,
+                # The last day is still in progress: fully covered so far, but only 14 hours long.
+                "calendar_hours": 14 if offset == 20 else 24,
                 "stable_devices": busy + offset,
                 "randomized_macs": 5 * busy,
                 "estimated_devices": None,
@@ -202,7 +204,8 @@ def test_weekday_profile_ranks_days_from_well_covered_days_only() -> None:
     assert weekday.height == 7
     assert weekday["weekday_name"].to_list()[0] == "Monday"
     by_day = {row["local_weekday"]: row for row in weekday.iter_rows(named=True)}
-    assert sum(row["days_observed"] for row in by_day.values()) == 16
+    assert sum(row["days_observed"] for row in by_day.values()) == 15
+    assert by_day[7]["days_observed"] == 2
     assert by_day[3]["activity_rank"] == 1
     assert by_day[7]["activity_rank"] == 7
     assert by_day[3]["activity_index"] > 1 > by_day[7]["activity_index"]

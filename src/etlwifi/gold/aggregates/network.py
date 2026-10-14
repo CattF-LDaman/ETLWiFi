@@ -181,7 +181,7 @@ def build_agg_network_daily(
         pl.col("device_count").quantile(0.95).alias("p95_concurrent_devices"),
     )
     return (
-        coverage_daily.select("local_date", "coverage_ratio", "observed_windows")
+        coverage_daily.select("local_date", "calendar_hours", "coverage_ratio", "observed_windows")
         .join(daily, on="local_date", how="left")
         .join(stable_activity, on="local_date", how="left")
         .join(concurrency, on="local_date", how="left")
