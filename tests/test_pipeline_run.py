@@ -2,56 +2,81 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from etlwifi.bronze.ingest import ingest_csv
-from etlwifi.pipeline.run import run_pipeline
-from etlwifi.silver.manifest import load_manifest
-from etlwifi.silver.transform import transform_dataset
+import pytest
 
-SAMPLE_HEADER = (
-    "window_timestamp,mac,packet_count,total_bytes,min_rssi,max_rssi,avg_rssi,"
-    "mgmt_pkts,ctrl_pkts,data_pkts,observed_channels\n"
+from etlwifi.config.paths import DataPaths
+from etlwifi.config.settings import Settings
+from etlwifi.gold.manifest import load_manifest as load_gold_manifest
+from etlwifi.pipeline.run import (
+    append_run_record,
+    discover_sources,
+    load_run_records,
+    pipeline_lock,
+    run_configured_pipeline,
+    run_pipeline,
+    run_record,
 )
+from etlwifi.schema import TELEMETRY_COLUMNS
+from tests.conftest import SALT, capture_rows, telemetry_rows, write_rows
 
 
-def test_run_pipeline_end_to_end(tmp_path: Path) -> None:
-    csv_path = tmp_path / "sample.csv"
-    bronze_root = tmp_path / "data" / "bronze"
-    silver_root = tmp_path / "data" / "silver"
+@pytest.fixture
+def settings(tmp_path: Path) -> Settings:
+    rows = capture_rows(days=3)
+    legacy = write_rows(tmp_path / "my_neighborhood.csv", rows[: len(rows) // 2])
+    paths = DataPaths.from_root(tmp_path / "data")
+    # The landing file overlaps the legacy export, as during a shadow-mode cutover.
+    write_rows(paths.capture_landing / "2026-06-02.csv", rows[len(rows) // 3 :])
+    write_rows(paths.telemetry_landing / "2026-06-02.csv", telemetry_rows(rows), TELEMETRY_COLUMNS)
+    return Settings(data_root=tmp_path / "data", dataset="hood", mac_hash_salt=SALT, legacy_csv=legacy)
 
-    csv_path.write_text(
-        SAMPLE_HEADER
-        + "2026-05-27T13:46:09.586928,abc,1,34,-76,-74,-75.0,1,0,0,1|6\n"
-        + "2026-05-28T13:46:09.586928,def,2,68,-70,-68,-69.0,2,0,0,11\n",
-        encoding="utf-8",
-    )
 
-    first = run_pipeline(csv_path, bronze_root, silver_root)
-    second = run_pipeline(csv_path, bronze_root, silver_root)
+def test_discover_sources_puts_legacy_first(settings: Settings) -> None:
+    capture, telemetry = discover_sources(settings, DataPaths.from_root(settings.data_root))
+    assert capture[0] == settings.legacy_csv
+    assert [p.name for p in capture[1:]] == ["2026-06-02.csv"]
+    assert len(telemetry) == 1
 
-    assert first.bronze.skipped is False
-    assert first.silver.skipped is False
+
+def test_configured_pipeline_is_idempotent_and_dedupes_overlap(settings: Settings) -> None:
+    first = run_configured_pipeline(settings)
+    second = run_configured_pipeline(settings)
+
     assert first.silver.validation is not None
-    assert first.silver.validation.fact_rows == 2
+    assert first.silver.validation.fact_rows == len(capture_rows(days=3))
+    assert first.silver.validation.clean.duplicates_removed > 0
+    assert first.silver.capture_windows > 0
+    assert first.gold.skipped is False
+    assert set(first.durations) == {"bronze", "silver", "gold"}
 
-    assert second.bronze.skipped is True
-    assert second.silver.skipped is True
-    assert len(load_manifest(silver_root / "_manifest.jsonl")) == 1
+    assert second.bronze.skipped and second.silver.skipped and second.gold.skipped
+    gold_root = DataPaths.from_root(settings.data_root).gold
+    assert len(load_gold_manifest(gold_root / "_manifest.jsonl")) == 1
 
 
-def test_run_pipeline_silver_runs_after_bronze_skip(tmp_path: Path) -> None:
-    csv_path = tmp_path / "sample.csv"
-    bronze_root = tmp_path / "data" / "bronze"
-    silver_root = tmp_path / "data" / "silver"
+def test_run_records_round_trip(settings: Settings, tmp_path: Path) -> None:
+    from datetime import UTC, datetime
 
-    csv_path.write_text(
-        SAMPLE_HEADER + "2026-05-27T13:46:09.586928,abc,1,34,-76,-74,-75.0,1,0,0,1\n",
-        encoding="utf-8",
+    result = run_configured_pipeline(settings)
+    state = tmp_path / "state"
+    append_run_record(state, run_record(result, started_at=datetime.now(UTC)))
+    append_run_record(state, run_record(None, started_at=datetime.now(UTC), error="boom"))
+
+    records = load_run_records(state)
+    assert [r["status"] for r in records] == ["success", "failed"]
+    assert records[0]["gold_table_rows"]
+    assert records[1]["error"] == "boom"
+
+
+def test_pipeline_lock_rejects_concurrent_runs(tmp_path: Path) -> None:
+    with pipeline_lock(tmp_path), pytest.raises(RuntimeError, match="in progress"), pipeline_lock(tmp_path):
+        pass
+
+
+def test_single_file_wrapper(tmp_path: Path) -> None:
+    csv_path = write_rows(tmp_path / "sample.csv", capture_rows(days=1, hours_per_day=1))
+    result = run_pipeline(
+        csv_path, tmp_path / "bronze", tmp_path / "silver", tmp_path / "gold", mac_salt=SALT
     )
-
-    ingest_csv(csv_path, bronze_root)
-    result = run_pipeline(csv_path, bronze_root, silver_root)
-
-    assert result.bronze.skipped is True
-    assert result.silver.skipped is False
-    assert result.silver.validation is not None
-    assert result.silver.validation.fact_rows == 1
+    assert result.dataset == "sample"
+    assert result.gold.validation is not None

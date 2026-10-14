@@ -6,6 +6,7 @@ from pathlib import Path
 
 from etlwifi.bronze.ingest import ingest_csv
 from etlwifi.config.paths import default_paths
+from etlwifi.config.settings import load_settings
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -31,6 +32,12 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         help="Dataset folder name (default: CSV stem, e.g. neighborhood)",
     )
     ingest_parser.add_argument(
+        "--kind",
+        choices=("capture", "telemetry"),
+        default="capture",
+        help="Landing contract of the file (default: capture)",
+    )
+    ingest_parser.add_argument(
         "--force",
         action="store_true",
         help="Re-ingest even when content hash matches a prior landing",
@@ -45,6 +52,8 @@ def _run_ingest(args: argparse.Namespace) -> int:
             args.csv_path,
             bronze_root,
             dataset=args.dataset,
+            kind=args.kind,
+            mac_salt=load_settings().mac_hash_salt,
             force=args.force,
         )
     except (FileNotFoundError, ValueError) as exc:
@@ -59,6 +68,8 @@ def _run_ingest(args: argparse.Namespace) -> int:
         return 0
 
     print(f"Ingested {result.rows:,} rows -> {bronze_root / result.dataset}")
+    if result.hashed_macs:
+        print(f"  pseudonymised MAC addresses: {result.hashed_macs:,}")
     print(f"  date partitions: {result.partitions}")
     if result.replaced_parts:
         print(f"  replaced prior part files: {result.replaced_parts}")

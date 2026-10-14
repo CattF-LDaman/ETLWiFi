@@ -53,6 +53,8 @@ def _run_transform(args: argparse.Namespace) -> int:
             args.dataset,
             bronze_root,
             silver_root,
+            telemetry_dataset=f"{args.dataset}_telemetry",
+            reference_dir=paths.reference,
             force=args.force,
         )
     except (FileNotFoundError, ValueError) as exc:

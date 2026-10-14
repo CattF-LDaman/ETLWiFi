@@ -21,8 +21,6 @@ def build_channel_tables(frame: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFram
         .select(TIMESTAMP_COLUMN, "mac", "channel")
     )
 
-    channel_counts = channels.group_by(TIMESTAMP_COLUMN, "mac").agg(
-        pl.len().alias("channel_count")
-    )
+    channel_counts = channels.group_by(TIMESTAMP_COLUMN, "mac").agg(pl.len().alias("channel_count"))
 
     return channels, channel_counts

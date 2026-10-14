@@ -7,6 +7,8 @@ import polars as pl
 
 from etlwifi.config.defaults import (
     BRIDGE_TABLE,
+    CAPTURE_DWELL_TABLE,
+    CAPTURE_WINDOW_TABLE,
     DATE_PARTITION_PREFIX,
     DIM_TABLE,
     FACT_TABLE,
@@ -19,7 +21,7 @@ def _partition_date_expr() -> pl.Expr:
 
 
 def write_partitioned_table(
-    frame: pl.DataFrame,
+    frame: pl.DataFrame | pl.LazyFrame,
     silver_root: Path,
     table_name: str,
     part_stamp: str,
@@ -28,9 +30,11 @@ def write_partitioned_table(
     rows_written = 0
     table_root = silver_root / table_name
 
-    dates = frame.select(_partition_date_expr().alias("date")).unique().sort("date")
-    for date_value in dates["date"].to_list():
-        day_frame = frame.filter(_partition_date_expr() == date_value)
+    if isinstance(frame, pl.LazyFrame):
+        frame = frame.collect()
+    keyed = frame.with_columns(_partition_date_expr().alias("__date"))
+    partitions = keyed.partition_by("__date", as_dict=True, include_key=False, maintain_order=True)
+    for (date_value,), day_frame in sorted(partitions.items()):
         partition_dir = table_root / f"{DATE_PARTITION_PREFIX}{date_value}"
         partition_dir.mkdir(parents=True, exist_ok=True)
         part_path = partition_dir / f"part-{part_stamp}.parquet"
@@ -41,12 +45,13 @@ def write_partitioned_table(
     return parts_written, rows_written
 
 
-def write_dim_device(
+def write_single_table(
     frame: pl.DataFrame,
     silver_root: Path,
+    table_name: str,
     part_stamp: str,
 ) -> tuple[str, int]:
-    table_root = silver_root / DIM_TABLE
+    table_root = silver_root / table_name
     table_root.mkdir(parents=True, exist_ok=True)
     part_path = table_root / f"part-{part_stamp}.parquet"
     frame.write_parquet(part_path)
@@ -59,24 +64,36 @@ def write_silver_tables(
     dim: pl.DataFrame,
     silver_root: Path,
     *,
+    capture_windows: pl.DataFrame | None = None,
+    capture_dwell: pl.DataFrame | None = None,
     ingested_at: datetime | None = None,
 ) -> dict:
     ingested_at = ingested_at or datetime.now(UTC)
-    part_stamp = ingested_at.strftime("%Y%m%dT%H%M%SZ")
+    part_stamp = ingested_at.strftime("%Y%m%dT%H%M%S%fZ")
 
-    fact_parts, fact_rows = write_partitioned_table(
-        fact, silver_root, FACT_TABLE, part_stamp
-    )
-    bridge_parts, bridge_rows = write_partitioned_table(
-        bridge, silver_root, BRIDGE_TABLE, part_stamp
-    )
-    dim_part, dim_rows = write_dim_device(dim, silver_root, part_stamp)
+    fact_parts, fact_rows = write_partitioned_table(fact, silver_root, FACT_TABLE, part_stamp)
+    bridge_parts, bridge_rows = write_partitioned_table(bridge, silver_root, BRIDGE_TABLE, part_stamp)
+    dim_part, dim_rows = write_single_table(dim, silver_root, DIM_TABLE, part_stamp)
+
+    parts = fact_parts + bridge_parts + [dim_part]
+    window_rows = 0
+    for table_name, frame in (
+        (CAPTURE_WINDOW_TABLE, capture_windows),
+        (CAPTURE_DWELL_TABLE, capture_dwell),
+    ):
+        if frame is None:
+            continue
+        part, rows = write_single_table(frame, silver_root, table_name, part_stamp)
+        parts.append(part)
+        if table_name == CAPTURE_WINDOW_TABLE:
+            window_rows = rows
 
     return {
-        "parts": fact_parts + bridge_parts + [dim_part],
+        "parts": parts,
         "rows_fact": fact_rows,
         "rows_bridge": bridge_rows,
         "rows_dim": dim_rows,
+        "rows_capture_windows": window_rows,
         "fact_partitions": len(fact_parts),
         "bridge_partitions": len(bridge_parts),
         "ingested_at": ingested_at.isoformat(),

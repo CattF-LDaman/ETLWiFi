@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import sys
 
 from etlwifi import __version__
-from etlwifi.cli import bronze, run, silver
+from etlwifi.cli import bronze, gold, run, services, silver
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -18,6 +17,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.register(subparsers)
     bronze.register(subparsers)
     silver.register(subparsers)
+    gold.register(subparsers)
+    services.register(subparsers)
     return parser
 
 

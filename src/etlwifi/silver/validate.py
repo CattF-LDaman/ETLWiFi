@@ -5,8 +5,8 @@ from datetime import UTC
 
 import polars as pl
 
-from etlwifi.config.defaults import COLLECTION_END, COLLECTION_START
-from etlwifi.silver.clean import CleanSummary, TIMESTAMP_COLUMN
+from etlwifi.config.defaults import COLLECTION_START
+from etlwifi.silver.clean import TIMESTAMP_COLUMN, CleanSummary
 
 
 @dataclass(frozen=True)
@@ -27,18 +27,11 @@ def validate_silver(
         raise ValueError("fact_device_window has null timestamps")
 
     start = COLLECTION_START.replace(tzinfo=UTC)
-    end = COLLECTION_END.replace(tzinfo=UTC)
-    out_of_range = fact.filter(
-        (pl.col(TIMESTAMP_COLUMN) < start) | (pl.col(TIMESTAMP_COLUMN) > end)
-    )
-    if out_of_range.height:
-        raise ValueError(
-            f"timestamps outside collection range ({out_of_range.height} rows)"
-        )
+    before_start = fact.filter(pl.col(TIMESTAMP_COLUMN) < start)
+    if before_start.height:
+        raise ValueError(f"timestamps before collection start ({before_start.height} rows)")
 
-    bad_rssi = fact.filter(
-        (pl.col("avg_rssi") < -100) | (pl.col("avg_rssi") > 0)
-    )
+    bad_rssi = fact.filter((pl.col("avg_rssi") < -100) | (pl.col("avg_rssi") > 0))
     if bad_rssi.height:
         raise ValueError(f"avg_rssi out of range (-100, 0): {bad_rssi.height} rows")
 
@@ -47,13 +40,10 @@ def validate_silver(
         raise ValueError(f"packet_count < 0: {bad_packets.height} rows")
 
     bad_mix = fact.filter(
-        (pl.col("mgmt_pkts") + pl.col("ctrl_pkts") + pl.col("data_pkts"))
-        > pl.col("packet_count")
+        (pl.col("mgmt_pkts") + pl.col("ctrl_pkts") + pl.col("data_pkts")) > pl.col("packet_count")
     )
     if bad_mix.height:
-        raise ValueError(
-            f"mgmt+ctrl+data exceeds packet_count: {bad_mix.height} rows"
-        )
+        raise ValueError(f"mgmt+ctrl+data exceeds packet_count: {bad_mix.height} rows")
 
     if bridge.height:
         bad_channels = bridge.filter(pl.col("channel") < 1)

@@ -1,0 +1,46 @@
+name: etlwifi
+
+x-service: &service
+  env_file:
+    - path: .env
+      required: false
+  restart: unless-stopped
+  # Host networking: the capture service drives a physical adapter and the worker
+  # reaches the portfolio on the host's loopback (or a public URL after the VPS move).
+  network_mode: host
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  capture:
+    <<: *service
+    build:
+      context: .
+      target: capture
+    image: etlwifi-capture:latest
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      ETLWIFI_DATA_ROOT: /data
+    volumes:
+      - ${ETLWIFI_DATA_DIR:-./data}/landing:/data/landing
+
+  worker:
+    <<: *service
+    build:
+      context: .
+      target: worker
+    image: etlwifi-worker:latest
+    user: "${ETLWIFI_UID:-1000}:${ETLWIFI_GID:-1000}"
+    environment:
+      ETLWIFI_DATA_ROOT: /data
+      ETLWIFI_LEGACY_CSV: /legacy/capture.csv
+      PORTFOLIO_URL: ${PORTFOLIO_URL:-http://127.0.0.1:8000}
+    volumes:
+      - ${ETLWIFI_DATA_DIR:-./data}:/data
+      # Unset LEGACY_CSV_HOST_PATH mounts /dev/null, which the worker treats as "no legacy file".
+      - ${LEGACY_CSV_HOST_PATH:-/dev/null}:/legacy/capture.csv:ro
