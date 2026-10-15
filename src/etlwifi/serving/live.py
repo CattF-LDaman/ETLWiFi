@@ -261,9 +261,7 @@ def _today(capture: pl.DataFrame, context: LiveContext | None, now: datetime, tz
         "unique": today["mac"].n_unique(),
         "stable": len(stable),
         "randomized": today.filter(pl.col("is_randomized"))["mac"].n_unique(),
-        "first_time_stable": (
-            len(stable & first_seen_today) if first_seen_today is not None else None
-        ),
+        "first_time_stable": (len(stable & first_seen_today) if first_seen_today is not None else None),
         "packets": int(today["packet_count"].sum()),
         "peak_concurrent": int(series["devices"].max()) if series.height else 0,
         "hours": records(hours),
