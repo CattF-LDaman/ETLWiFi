@@ -351,33 +351,45 @@ def _access_points(t: dict[str, pl.DataFrame]) -> dict | None:
     }
 
 
+def _anomaly_records(frame: pl.DataFrame, *, limit: int = 12) -> list[dict]:
+    return records(
+        frame.sort("hour_start", descending=True).head(limit),
+        {
+            "hour_start": "t",
+            "local_date": "date",
+            "local_hour": "hour",
+            "driver": "driver",
+            "stable_devices": "stable",
+            "expected_stable_devices": "expected_stable",
+            "z_stable_devices": "z_stable",
+            "unique_devices": "unique",
+            "expected_unique_devices": "expected_unique",
+            "z_unique_devices": "z_unique",
+            "randomized_macs": "randomized",
+            "packets_per_min": "ppm",
+            "expected_packets_per_min": "expected_ppm",
+            "z_packets_per_min": "z_ppm",
+        },
+        1,
+    )
+
+
 def _anomalies(t: dict[str, pl.DataFrame]) -> dict:
     frame = t[d.AGG_ANOMALY_HOURLY]
+    empty = {"rate": None, "scored_hours": 0, "recent": [], "bursts": {"recent": []}}
     if frame.height == 0 or "is_anomaly" not in frame.columns:
-        return {"rate": None, "recent": []}
-    flagged = frame.filter(pl.col("is_anomaly")).sort("hour_start", descending=True).head(12)
+        return empty
+    flagged = frame.filter(pl.col("is_anomaly"))
+    bursts = (
+        frame.filter(pl.col("is_randomized_burst"))
+        if "is_randomized_burst" in frame.columns
+        else pl.DataFrame()
+    )
     return {
         "rate": scalar(frame["is_anomaly"].mean()),
         "scored_hours": frame.height,
-        "recent": records(
-            flagged,
-            {
-                "hour_start": "t",
-                "local_date": "date",
-                "local_hour": "hour",
-                "driver": "driver",
-                "stable_devices": "stable",
-                "expected_stable_devices": "expected_stable",
-                "z_stable_devices": "z_stable",
-                "unique_devices": "unique",
-                "expected_unique_devices": "expected_unique",
-                "z_unique_devices": "z_unique",
-                "packets_per_min": "ppm",
-                "expected_packets_per_min": "expected_ppm",
-                "z_packets_per_min": "z_ppm",
-            },
-            1,
-        ),
+        "recent": _anomaly_records(flagged),
+        "bursts": {"recent": _anomaly_records(bursts)},
     }
 
 

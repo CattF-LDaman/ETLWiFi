@@ -122,9 +122,11 @@ def _hourly(weeks: int, spike_at: int | None = None) -> pl.DataFrame:
         level = 20 + 30 * math.sin(math.pi * hour / 24) ** 2
         unique = int(level * (1 + 0.05 * math.sin(i)))
         stable = max(1, int(unique * 0.25))
+        randomized = max(0, unique - stable)
         if i == spike_at:
             stable *= 8
             unique *= 8
+            randomized = max(randomized, unique - stable)
         rows.append(
             {
                 "hour_start": start + timedelta(hours=i),
@@ -134,10 +136,31 @@ def _hourly(weeks: int, spike_at: int | None = None) -> pl.DataFrame:
                 "coverage_ratio": 1.0,
                 "unique_devices": unique,
                 "stable_devices": stable,
+                "randomized_macs": randomized,
                 "packets_per_min": float(unique * 10),
             }
         )
     return pl.DataFrame(rows)
+
+
+def test_unique_spike_flat_stable_not_primary_anomaly() -> None:
+    hourly = _hourly(6)
+    spike = 5 * 168 + 13
+    hourly = hourly.with_columns(
+        pl.when(pl.int_range(pl.len()) == spike)
+        .then(pl.lit(500))
+        .otherwise(pl.col("unique_devices"))
+        .alias("unique_devices"),
+        pl.when(pl.int_range(pl.len()) == spike)
+        .then(pl.lit(490))
+        .otherwise(pl.col("randomized_macs"))
+        .alias("randomized_macs"),
+    )
+    scored = build_agg_anomaly_hourly(hourly)
+    expected_hour = datetime(2026, 6, 1, tzinfo=UTC) + timedelta(hours=spike)
+    row = scored.filter(pl.col("hour_start") == expected_hour).row(0, named=True)
+    assert row["is_anomaly"] is False
+    assert row["is_randomized_burst"] is True
 
 
 def test_anomaly_detection_flags_spike_against_trailing_baseline() -> None:

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from datetime import timedelta
-
 import polars as pl
 
 from etlwifi.config.defaults import (
+    ANOMALY_BURST_RANDOMIZED_RATIO,
+    ANOMALY_STABLE_MIN_ABS_DELTA,
     ANOMALY_Z_THRESHOLD,
     BASELINE_LOOKBACK_DAYS,
-    BASELINE_PPM_LOOKBACK_DAYS,
     MIN_COVERAGE_FOR_BASELINE,
 )
 from etlwifi.gold.context import TS, GoldContext, local_time_columns
@@ -241,7 +240,6 @@ def build_agg_baseline_hour_of_week(
         ]
     )
 
-    ppm_recent_cutoff = last_date - timedelta(days=BASELINE_PPM_LOOKBACK_DAYS)
     hourly = selected.group_by(slot).agg(
         pl.col("unique_devices").median().alias("unique_devices_p50"),
         pl.col("unique_devices").quantile(0.1).alias("unique_devices_p10"),
@@ -251,18 +249,9 @@ def build_agg_baseline_hour_of_week(
         pl.col("stable_devices").quantile(0.1).alias("stable_devices_p10"),
         pl.col("stable_devices").quantile(0.9).alias("stable_devices_p90"),
         pl.col("randomized_macs").median().alias("randomized_macs_p50"),
-        pl.col("packets_per_min")
-        .filter(pl.col("local_date") > ppm_recent_cutoff)
-        .median()
-        .alias("packets_per_min_p50"),
-        pl.col("packets_per_min")
-        .filter(pl.col("local_date") > ppm_recent_cutoff)
-        .quantile(0.1)
-        .alias("packets_per_min_p10"),
-        pl.col("packets_per_min")
-        .filter(pl.col("local_date") > ppm_recent_cutoff)
-        .quantile(0.9)
-        .alias("packets_per_min_p90"),
+        pl.col("packets_per_min").median().alias("packets_per_min_p50"),
+        pl.col("packets_per_min").quantile(0.1).alias("packets_per_min_p10"),
+        pl.col("packets_per_min").quantile(0.9).alias("packets_per_min_p90"),
         _mad("packets_per_min").alias("packets_per_min_mad"),
         pl.len().alias("sample_hours"),
     )
@@ -337,13 +326,30 @@ def build_agg_anomaly_hourly(network_hourly: pl.DataFrame) -> pl.DataFrame:
             _robust_z("unique_devices", "_unique_log_median").alias("z_unique_devices"),
         )
     )
+    stable_shift = (pl.col("stable_devices") - pl.col("expected_stable_devices")).abs()
+    stable_floor = pl.max_horizontal(pl.col("expected_stable_devices").fill_null(0), pl.lit(1.0))
     return (
         scored.with_columns(
             (
                 (pl.col("z_stable_devices").abs() > ANOMALY_Z_THRESHOLD)
-                | (pl.col("z_packets_per_min").abs() > ANOMALY_Z_THRESHOLD)
-            ).alias("is_anomaly"),
-            pl.when(pl.col("z_stable_devices").abs() >= pl.col("z_packets_per_min").abs())
+                & (stable_shift >= ANOMALY_STABLE_MIN_ABS_DELTA)
+            ).alias("_stable_anomaly"),
+            (pl.col("z_packets_per_min").abs() > ANOMALY_Z_THRESHOLD).alias("_ppm_anomaly"),
+            (
+                (pl.col("z_unique_devices").abs() > ANOMALY_Z_THRESHOLD)
+                & (pl.col("z_stable_devices").abs() <= ANOMALY_Z_THRESHOLD)
+                & (pl.col("randomized_macs") >= ANOMALY_BURST_RANDOMIZED_RATIO * stable_floor)
+            ).alias("is_randomized_burst"),
+        )
+        .with_columns(
+            (pl.col("_stable_anomaly") | pl.col("_ppm_anomaly")).alias("is_anomaly"),
+            pl.when(
+                pl.col("_stable_anomaly")
+                & (
+                    ~pl.col("_ppm_anomaly")
+                    | (pl.col("z_stable_devices").abs() >= pl.col("z_packets_per_min").abs())
+                )
+            )
             .then(pl.lit("stable_devices"))
             .otherwise(pl.lit("packets_per_min"))
             .alias("driver"),
@@ -361,11 +367,13 @@ def build_agg_anomaly_hourly(network_hourly: pl.DataFrame) -> pl.DataFrame:
             "unique_devices",
             "expected_unique_devices",
             "z_unique_devices",
+            "randomized_macs",
             "packets_per_min",
             "expected_packets_per_min",
             "z_packets_per_min",
             "driver",
             "is_anomaly",
+            "is_randomized_burst",
         )
         .sort("hour_start")
     )

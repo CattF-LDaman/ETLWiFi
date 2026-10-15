@@ -73,6 +73,7 @@ class Worker:
             self.context = LiveContext(
                 baseline=tables[d.AGG_BASELINE_HOUR_OF_WEEK],
                 stable_first_seen_today=set(first_seen_today),
+                stable_first_seen_for_date=local_today,
             )
         return build_dashboard(
             tables,

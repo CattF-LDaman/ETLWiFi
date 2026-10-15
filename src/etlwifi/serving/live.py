@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -30,6 +30,7 @@ class LiveContext:
 
     baseline: pl.DataFrame | None = None
     stable_first_seen_today: set[str] = field(default_factory=set)
+    stable_first_seen_for_date: date | None = None
 
 
 def _read_csv_text(text: str, columns: tuple[str, ...]) -> pl.DataFrame:
@@ -236,6 +237,14 @@ def _expected(context: LiveContext | None, now: datetime, tz: ZoneInfo) -> dict 
     }
 
 
+def _first_time_stable_count(stable: set[str], context: LiveContext | None, local_today: date) -> int | None:
+    if context is None or context.stable_first_seen_for_date is None:
+        return None
+    if context.stable_first_seen_for_date != local_today:
+        return None
+    return len(stable & context.stable_first_seen_today)
+
+
 def _today(capture: pl.DataFrame, context: LiveContext | None, now: datetime, tz: ZoneInfo) -> dict:
     local_today = now.astimezone(tz).date()
     today = capture.with_columns(pl.col("timestamp").dt.convert_time_zone(str(tz)).alias("local_ts")).filter(
@@ -244,7 +253,6 @@ def _today(capture: pl.DataFrame, context: LiveContext | None, now: datetime, tz
     if today.height == 0:
         return {"date": local_today.isoformat(), "unique": 0, "stable": 0, "randomized": 0, "hours": []}
     stable = set(today.filter(~pl.col("is_randomized"))["mac"].unique().to_list())
-    first_seen_today = context.stable_first_seen_today if context else None
     hours = (
         today.group_by(pl.col("local_ts").dt.hour().alias("hour"))
         .agg(
@@ -261,7 +269,7 @@ def _today(capture: pl.DataFrame, context: LiveContext | None, now: datetime, tz
         "unique": today["mac"].n_unique(),
         "stable": len(stable),
         "randomized": today.filter(pl.col("is_randomized"))["mac"].n_unique(),
-        "first_time_stable": (len(stable & first_seen_today) if first_seen_today is not None else None),
+        "first_time_stable": _first_time_stable_count(stable, context, local_today),
         "packets": int(today["packet_count"].sum()),
         "peak_concurrent": int(series["devices"].max()) if series.height else 0,
         "hours": records(hours),

@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import json
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from email.message import Message
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -116,6 +116,7 @@ def test_live_document_reads_landing_zone(built: tuple[Settings, dict, dict], tm
     context = LiveContext(
         baseline=tables["agg_baseline_hour_of_week"],
         stable_first_seen_today={hash_mac(RESIDENT, SALT.encode())},
+        stable_first_seen_for_date=date(2026, 7, 1),
     )
 
     doc = build_live(settings, DataPaths.from_root(settings.data_root), context, now=now)
@@ -128,6 +129,36 @@ def test_live_document_reads_landing_zone(built: tuple[Settings, dict, dict], tm
     assert len(doc["last_hour"]) == 30
     assert doc["today"]["first_time_stable"] == 1
     assert hash_mac(RESIDENT, SALT.encode()) not in json.dumps(doc)
+
+
+def test_live_first_time_stable_stale_context_date(
+    built: tuple[Settings, dict, dict], tmp_path: Path
+) -> None:
+    _, tables, _ = built
+    settings = Settings(data_root=tmp_path / "data", dataset="hood", mac_hash_salt=SALT)
+    now = datetime(2026, 7, 2, 12, 0, 5, tzinfo=UTC)
+    _landing(settings, now)
+    context = LiveContext(
+        baseline=tables["agg_baseline_hour_of_week"],
+        stable_first_seen_today={hash_mac(RESIDENT, SALT.encode())},
+        stable_first_seen_for_date=date(2026, 7, 1),
+    )
+    doc = build_live(settings, DataPaths.from_root(settings.data_root), context, now=now)
+    assert doc["today"]["first_time_stable"] is None
+
+
+def test_live_first_time_stable_empty_set_today(built: tuple[Settings, dict, dict], tmp_path: Path) -> None:
+    _, tables, _ = built
+    settings = Settings(data_root=tmp_path / "data", dataset="hood", mac_hash_salt=SALT)
+    now = datetime(2026, 7, 1, 12, 0, 5, tzinfo=UTC)
+    _landing(settings, now)
+    context = LiveContext(
+        baseline=tables["agg_baseline_hour_of_week"],
+        stable_first_seen_today=set(),
+        stable_first_seen_for_date=date(2026, 7, 1),
+    )
+    doc = build_live(settings, DataPaths.from_root(settings.data_root), context, now=now)
+    assert doc["today"]["first_time_stable"] == 0
 
 
 def test_live_document_without_data_reports_offline(tmp_path: Path) -> None:

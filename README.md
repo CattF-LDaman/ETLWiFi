@@ -81,7 +81,8 @@ from "capture was down", which is what the coverage metrics are built on.
     rolling windows), `feat_network_hourly` (lags, rolling stats, cyclical encodings),
     `feat_session_events`, `feat_co_presence_topk`.
 
-  Thresholds live in `src/etlwifi/config/defaults.py`. Every gold build is validated for unique
+  Thresholds live in `src/etlwifi/config/defaults.py` (including anomaly stable floor and probe-burst
+  ratio). Serving JSON uses `schema_version` **2** — keep LuweDaman ingest in sync. Every gold build is validated for unique
   keys, value ranges, a stable/randomized split that adds up, segment consistency, and a gap-free
   calendar.
 
