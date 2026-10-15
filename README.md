@@ -71,7 +71,8 @@ from "capture was down", which is what the coverage metrics are built on.
     (min, quartiles, max), the median segment mix, peak and quiet hours, and an activity index and
     rank against the weekly average.
   - `agg_anomaly_hourly`: each covered hour against its trailing same-hour-of-week median, using a
-    robust z-score on log counts (|z| > 3.5).
+    robust z-score on log **stable device** counts and packets/min (|z| > 3.5; unique counts kept
+    for reference only).
   - `dim_device_profile`: behavioural segments (`access_point`, `infrastructure`, `resident`,
     `regular`, `passerby`, `randomized`) from absolute, explainable rules.
   - `agg_churn_daily`, `agg_dwell_distribution`, `agg_vendor`, `agg_channel_hourly`,

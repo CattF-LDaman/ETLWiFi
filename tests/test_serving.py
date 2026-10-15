@@ -113,7 +113,10 @@ def test_live_document_reads_landing_zone(built: tuple[Settings, dict, dict], tm
     settings = Settings(data_root=tmp_path / "data", dataset="hood", mac_hash_salt=SALT)
     now = datetime(2026, 7, 1, 12, 0, 5, tzinfo=UTC)
     _landing(settings, now)
-    context = LiveContext(baseline=tables["agg_baseline_hour_of_week"], known_stable_macs={"previously-seen"})
+    context = LiveContext(
+        baseline=tables["agg_baseline_hour_of_week"],
+        stable_first_seen_today={hash_mac(RESIDENT, SALT.encode())},
+    )
 
     doc = build_live(settings, DataPaths.from_root(settings.data_root), context, now=now)
 

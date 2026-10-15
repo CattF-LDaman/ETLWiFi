@@ -121,7 +121,9 @@ def _hourly(weeks: int, spike_at: int | None = None) -> pl.DataFrame:
         hour = i % 24
         level = 20 + 30 * math.sin(math.pi * hour / 24) ** 2
         unique = int(level * (1 + 0.05 * math.sin(i)))
+        stable = max(1, int(unique * 0.25))
         if i == spike_at:
+            stable *= 8
             unique *= 8
         rows.append(
             {
@@ -131,6 +133,7 @@ def _hourly(weeks: int, spike_at: int | None = None) -> pl.DataFrame:
                 "local_weekday": (start + timedelta(hours=i)).isoweekday(),
                 "coverage_ratio": 1.0,
                 "unique_devices": unique,
+                "stable_devices": stable,
                 "packets_per_min": float(unique * 10),
             }
         )

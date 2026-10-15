@@ -8,6 +8,7 @@ import threading
 import time
 import traceback
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import polars as pl
 
@@ -24,6 +25,7 @@ from etlwifi.pipeline.run import (
 from etlwifi.reference.oui import refresh_registry
 from etlwifi.serving.common import load_gold_snapshot, write_json_atomic
 from etlwifi.serving.dashboard import build_dashboard
+from etlwifi.gold.context import local_time_columns
 from etlwifi.serving.live import LiveContext, build_live
 from etlwifi.serving.publish import Publisher
 
@@ -59,10 +61,18 @@ class Worker:
             log.info("no gold snapshot yet")
             return None
         profile = tables[d.DIM_DEVICE_PROFILE]
+        if "first_seen_date" not in profile.columns:
+            profile = profile.with_columns(
+                *local_time_columns("first_seen", self.settings.timezone, prefix="first_seen")
+            )
+        local_today = datetime.now(ZoneInfo(self.settings.timezone)).date()
+        first_seen_today = profile.filter(
+            ~pl.col("is_randomized") & (pl.col("first_seen_date") == local_today)
+        )["mac"].to_list()
         with self._context_lock:
             self.context = LiveContext(
                 baseline=tables[d.AGG_BASELINE_HOUR_OF_WEEK],
-                known_stable_macs=set(profile.filter(~pl.col("is_randomized"))["mac"].to_list()),
+                stable_first_seen_today=set(first_seen_today),
             )
         return build_dashboard(
             tables,

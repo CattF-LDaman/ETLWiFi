@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 import polars as pl
 
 from etlwifi.config.defaults import (
     ANOMALY_Z_THRESHOLD,
     BASELINE_LOOKBACK_DAYS,
+    BASELINE_PPM_LOOKBACK_DAYS,
     MIN_COVERAGE_FOR_BASELINE,
 )
 from etlwifi.gold.context import TS, GoldContext, local_time_columns
@@ -238,16 +241,28 @@ def build_agg_baseline_hour_of_week(
         ]
     )
 
+    ppm_recent_cutoff = last_date - timedelta(days=BASELINE_PPM_LOOKBACK_DAYS)
     hourly = selected.group_by(slot).agg(
         pl.col("unique_devices").median().alias("unique_devices_p50"),
         pl.col("unique_devices").quantile(0.1).alias("unique_devices_p10"),
         pl.col("unique_devices").quantile(0.9).alias("unique_devices_p90"),
         _mad("unique_devices").alias("unique_devices_mad"),
         pl.col("stable_devices").median().alias("stable_devices_p50"),
+        pl.col("stable_devices").quantile(0.1).alias("stable_devices_p10"),
+        pl.col("stable_devices").quantile(0.9).alias("stable_devices_p90"),
         pl.col("randomized_macs").median().alias("randomized_macs_p50"),
-        pl.col("packets_per_min").median().alias("packets_per_min_p50"),
-        pl.col("packets_per_min").quantile(0.1).alias("packets_per_min_p10"),
-        pl.col("packets_per_min").quantile(0.9).alias("packets_per_min_p90"),
+        pl.col("packets_per_min")
+        .filter(pl.col("local_date") > ppm_recent_cutoff)
+        .median()
+        .alias("packets_per_min_p50"),
+        pl.col("packets_per_min")
+        .filter(pl.col("local_date") > ppm_recent_cutoff)
+        .quantile(0.1)
+        .alias("packets_per_min_p10"),
+        pl.col("packets_per_min")
+        .filter(pl.col("local_date") > ppm_recent_cutoff)
+        .quantile(0.9)
+        .alias("packets_per_min_p90"),
         _mad("packets_per_min").alias("packets_per_min_mad"),
         pl.len().alias("sample_hours"),
     )
@@ -301,31 +316,35 @@ def _robust_z(actual: str, log_median: str) -> pl.Expr:
 def build_agg_anomaly_hourly(network_hourly: pl.DataFrame) -> pl.DataFrame:
     """Score each covered hour against its own trailing same-hour-of-week history."""
     covered = pl.col("coverage_ratio") >= MIN_COVERAGE_FOR_BASELINE
-    unique_exp, unique_med, unique_n = _trailing_same_hour("unique_devices", covered)
+    stable_exp, stable_med, stable_n = _trailing_same_hour("stable_devices", covered)
     ppm_exp, ppm_med, _ = _trailing_same_hour("packets_per_min", covered)
+    unique_exp, unique_med, _ = _trailing_same_hour("unique_devices", covered)
     scored = (
         network_hourly.sort("hour_start")
         .with_columns(
-            unique_exp.alias("expected_unique_devices"),
-            unique_med.alias("_unique_log_median"),
-            unique_n.alias("baseline_samples"),
+            stable_exp.alias("expected_stable_devices"),
+            stable_med.alias("_stable_log_median"),
+            stable_n.alias("baseline_samples"),
             ppm_exp.alias("expected_packets_per_min"),
             ppm_med.alias("_ppm_log_median"),
+            unique_exp.alias("expected_unique_devices"),
+            unique_med.alias("_unique_log_median"),
         )
         .filter(covered & (pl.col("baseline_samples") >= ANOMALY_MIN_SAMPLES))
         .with_columns(
-            _robust_z("unique_devices", "_unique_log_median").alias("z_unique_devices"),
+            _robust_z("stable_devices", "_stable_log_median").alias("z_stable_devices"),
             _robust_z("packets_per_min", "_ppm_log_median").alias("z_packets_per_min"),
+            _robust_z("unique_devices", "_unique_log_median").alias("z_unique_devices"),
         )
     )
     return (
         scored.with_columns(
             (
-                (pl.col("z_unique_devices").abs() > ANOMALY_Z_THRESHOLD)
+                (pl.col("z_stable_devices").abs() > ANOMALY_Z_THRESHOLD)
                 | (pl.col("z_packets_per_min").abs() > ANOMALY_Z_THRESHOLD)
             ).alias("is_anomaly"),
-            pl.when(pl.col("z_unique_devices").abs() >= pl.col("z_packets_per_min").abs())
-            .then(pl.lit("unique_devices"))
+            pl.when(pl.col("z_stable_devices").abs() >= pl.col("z_packets_per_min").abs())
+            .then(pl.lit("stable_devices"))
             .otherwise(pl.lit("packets_per_min"))
             .alias("driver"),
         )
@@ -336,6 +355,9 @@ def build_agg_anomaly_hourly(network_hourly: pl.DataFrame) -> pl.DataFrame:
             "local_weekday",
             "coverage_ratio",
             "baseline_samples",
+            "stable_devices",
+            "expected_stable_devices",
+            "z_stable_devices",
             "unique_devices",
             "expected_unique_devices",
             "z_unique_devices",

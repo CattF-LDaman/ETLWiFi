@@ -56,7 +56,11 @@ def build_agg_presence_daily(ctx: GoldContext) -> pl.DataFrame:
 
 
 def build_agg_churn_daily(presence_daily: pl.DataFrame) -> pl.DataFrame:
-    """Day-over-day turnover of stable devices (randomized MACs churn by design)."""
+    """Day-over-day turnover of stable devices (randomized MACs churn by design).
+
+    ``seen_last_7d`` is the count of today's stable MACs also seen on any of the
+    prior seven local days — not the behavioural ``resident`` segment.
+    """
     stable = presence_daily.filter(pl.col("device_class") == "stable")
     by_date = {
         row["local_date"]: set(row["mac"])
@@ -84,7 +88,7 @@ def build_agg_churn_daily(presence_daily: pl.DataFrame) -> pl.DataFrame:
                 "returning_devices": len(today & ever_seen),
                 "seen_yesterday": len(today & previous),
                 "lost_since_yesterday": len(previous - today),
-                "resident_devices": len(today & recent),
+                "seen_last_7d": len(today & recent),
                 "randomized_macs": randomized.get(date_value, 0),
             }
         )

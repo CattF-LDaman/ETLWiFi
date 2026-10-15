@@ -29,7 +29,7 @@ class LiveContext:
     """Gold-derived reference data refreshed after every pipeline run."""
 
     baseline: pl.DataFrame | None = None
-    known_stable_macs: set[str] = field(default_factory=set)
+    stable_first_seen_today: set[str] = field(default_factory=set)
 
 
 def _read_csv_text(text: str, columns: tuple[str, ...]) -> pl.DataFrame:
@@ -244,7 +244,7 @@ def _today(capture: pl.DataFrame, context: LiveContext | None, now: datetime, tz
     if today.height == 0:
         return {"date": local_today.isoformat(), "unique": 0, "stable": 0, "randomized": 0, "hours": []}
     stable = set(today.filter(~pl.col("is_randomized"))["mac"].unique().to_list())
-    known = context.known_stable_macs if context else set()
+    first_seen_today = context.stable_first_seen_today if context else None
     hours = (
         today.group_by(pl.col("local_ts").dt.hour().alias("hour"))
         .agg(
@@ -261,7 +261,9 @@ def _today(capture: pl.DataFrame, context: LiveContext | None, now: datetime, tz
         "unique": today["mac"].n_unique(),
         "stable": len(stable),
         "randomized": today.filter(pl.col("is_randomized"))["mac"].n_unique(),
-        "first_time_stable": len(stable - known) if known else None,
+        "first_time_stable": (
+            len(stable & first_seen_today) if first_seen_today is not None else None
+        ),
         "packets": int(today["packet_count"].sum()),
         "peak_concurrent": int(series["devices"].max()) if series.height else 0,
         "hours": records(hours),
