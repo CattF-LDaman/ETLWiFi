@@ -15,6 +15,7 @@ import polars as pl
 from etlwifi.config import defaults as d
 from etlwifi.config.paths import DataPaths
 from etlwifi.config.settings import Settings
+from etlwifi.gold.context import local_time_columns
 from etlwifi.health import touch_heartbeat
 from etlwifi.pipeline.run import (
     append_run_record,
@@ -25,7 +26,6 @@ from etlwifi.pipeline.run import (
 from etlwifi.reference.oui import refresh_registry
 from etlwifi.serving.common import load_gold_snapshot, write_json_atomic
 from etlwifi.serving.dashboard import build_dashboard
-from etlwifi.gold.context import local_time_columns
 from etlwifi.serving.live import LiveContext, build_live
 from etlwifi.serving.publish import Publisher
 
